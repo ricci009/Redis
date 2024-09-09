@@ -48,7 +48,7 @@ void handle_connection(int connfd) {
     //need to create a buffer that will be read in
     //recv or read
     char rbuf[64] = {};
-    ssize_t n = read(connfd, rbuf, sizeof(rbuf - 1)); //stores count of bytes ssize_t also can have -1 for errors.
+    ssize_t n = read(connfd, rbuf, sizeof(rbuf) - 1); //stores count of bytes ssize_t also can have -1 for errors.
     if(n < 0) {
         die("read() error");
         return;
