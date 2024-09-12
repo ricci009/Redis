@@ -1,3 +1,0 @@
-#include <sys/socket.h>
-
-int init_connection();

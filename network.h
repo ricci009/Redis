@@ -1,3 +1,5 @@
+#include <cstdint>
+
 void init_connection();
 
-void handle_connection(int connfd);
+int32_t handle_single_request(int connfd);
