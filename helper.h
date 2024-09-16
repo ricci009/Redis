@@ -8,7 +8,7 @@
 #include <cassert>
 #include <unistd.h>
 
-const size_t k_max_msg = 4096;
+//const size_t k_max_msg = 4096;
 
 inline void die(const char *msg) {
     std::cerr << msg << "\n";
