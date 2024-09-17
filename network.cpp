@@ -154,20 +154,20 @@ int try_one_request(Conn *conn)
 {
     if (conn->rbuf_size < 4)
     {
-        return -1;
+        return false;
     }
 
-    uint32_t len;
-    memcpy(&len, conn->rbuf, 4);
+    uint32_t len = 0;
+    memcpy(&len, &conn->rbuf[0], 4);
 
     if (len > k_max_msg)
     {
-        return -1;
+        return false;
     }
 
     if (4 + len > conn->rbuf_size)
     {
-        return -1; // not enough data in buffer... yet...
+        return false; // not enough data in buffer... yet...
     }
 
     printf("client says: %.*s\n", len, &conn->rbuf[4]);
@@ -178,8 +178,8 @@ int try_one_request(Conn *conn)
     conn->wbuf_size = 4 + len;
 
     // now the rbuf needs to be altered
-    int remain = conn->rbuf_size - 4 - len;
-    if (remain)
+    size_t remain = conn->rbuf_size - 4 - len;
+    if (remain > 0)
     {
         memmove(conn->rbuf, &conn->rbuf[4 + len], remain);
     }
@@ -196,7 +196,6 @@ static void state_req(Conn *conn)
 {
     while (try_fill_buffer(conn))
     {
-        std::cerr << "helloworld0\n";
     }
 }
 
@@ -206,7 +205,6 @@ static bool try_fill_buffer(Conn *conn)
     ssize_t rv = 0;
     do
     {
-        std::cerr << "waiting for fill\n";
         size_t cap = sizeof(conn->rbuf) - conn->rbuf_size;
         rv = read(conn->fd, &conn->rbuf[conn->rbuf_size], cap);
     } while (rv < 0 && errno == EINTR);
@@ -218,7 +216,6 @@ static bool try_fill_buffer(Conn *conn)
 
     if (rv < 0)
     {
-        std::cerr << "read error\n";
         conn->state = STATE_END;
         return false;
     }
@@ -251,7 +248,6 @@ static void state_res(Conn *conn)
     while (try_flush_buffer(conn))
     {
     }
-    std::cerr << "returning\n";
 }
 
 static bool try_flush_buffer(Conn *conn)
@@ -260,16 +256,12 @@ static bool try_flush_buffer(Conn *conn)
 
     do
     {
-        std::cerr << "waiting for flush\n";
         size_t remain = conn->wbuf_size - conn->wbuf_sent;
         rv = write(conn->fd, &conn->wbuf[conn->wbuf_sent], remain);
     } while (rv < 0 && errno == EINTR);
 
-    std::cerr << "done with flush\n";
-
     if (rv < 0)
     {
-        std::cerr << "write() error\n";
         conn->state = STATE_END;
         return false;
     }
@@ -283,7 +275,6 @@ static bool try_flush_buffer(Conn *conn)
         conn->state = STATE_REQ;
         conn->wbuf_sent = 0;
         conn->wbuf_size = 0;
-        std::cerr << "returning false\n";
         return false;
     }
 
@@ -295,12 +286,10 @@ static void connection_io(Conn *conn)
     if (conn->state == STATE_REQ)
     {
         state_req(conn);
-        std::cerr << "state request complete, returning\n";
     }
     else if (conn->state == STATE_RES)
     {
         state_res(conn);
-        std::cerr << "state response complete, returning\n";
     }
     else
     {
@@ -347,7 +336,7 @@ void init_connection()
         struct pollfd pfd = {listener, POLLIN, 0};
         poll_args.push_back(pfd);
 
-        for (auto conn : fd2conn)
+        for (auto conn: fd2conn)
         {
             struct pollfd pfd = {};
             pfd.fd = conn.second->fd;
@@ -364,18 +353,16 @@ void init_connection()
         }
 
         // process active connections
-        for (size_t i = 1; i < poll_args.size(); i++)
+        for (size_t i = 1; i < poll_args.size(); i++) //TODO: fix segfault in this loop..
         {
             if (poll_args[i].revents)
             {
                 Conn *conn = fd2conn[poll_args[i].fd];
                 connection_io(conn);
-                std::cerr << "yo\n";
                 if (conn->state == STATE_END)
                 {
-                    std::cerr << "should not be in here\n";
                     // close connection
-                    fd2conn[conn->fd] = NULL;
+                    fd2conn.erase(conn->fd);
                     (void)close(conn->fd);
                     free(conn);
                 }
