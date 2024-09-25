@@ -8,7 +8,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/ip.h>
-
+#include <iostream>
 
 static void msg(const char *msg) {
     fprintf(stderr, "%s\n", msg);
@@ -113,6 +113,7 @@ int main() {
     // multiple pipelined requests
     const char *query_list[3] = {"hello1", "hello2", "hello3"};
     for (size_t i = 0; i < 3; ++i) {
+        std::cerr << "SENDING REQUESTS\n";
         int32_t err = send_req(fd, query_list[i]);
         if (err) {
             goto L_DONE;
