@@ -20,8 +20,6 @@
 
 const size_t k_max_msg = 4096;
 
-// TODO: invalid size and double free or curroption
-
 enum
 {
     STATE_REQ = 0, // request
@@ -170,8 +168,8 @@ int try_one_request(Conn *conn)
         state_res(conn);
     }
 
-    memcpy(&conn->wbuf[wbuf_size], &conn->rbuf[conn->rbuf_read - 4], 4);
-    memcpy(&conn->wbuf[wbuf_size + 4], &conn->rbuf[conn->rbuf_read], len);
+    memcpy(&conn->wbuf[conn->wbuf_size], &conn->rbuf[conn->rbuf_read - 4], 4); //wbuf_size should be == 0 if the initial size is too large to read in the new message
+    memcpy(&conn->wbuf[conn->wbuf_size + 4], &conn->rbuf[conn->rbuf_read], len);
 
     conn->wbuf_size += 4 + len;
     conn->rbuf_read += len;
