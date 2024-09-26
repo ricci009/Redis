@@ -20,8 +20,7 @@
 
 const size_t k_max_msg = 4096;
 
-//TODO: invalid size and double free or curroption
-
+// TODO: invalid size and double free or curroption
 
 enum
 {
@@ -44,6 +43,7 @@ struct Conn
     // buffer for writing
     size_t wbuf_size = 0;
     size_t wbuf_sent = 0;
+    size_t curr_msg_size = 0;
     uint8_t wbuf[4 + k_max_msg];
 };
 
@@ -122,7 +122,7 @@ int get_listener_socket(void)
 
 static int32_t accept_new_conn(std::unordered_map<int, Conn *> &fd2conn, int connfd)
 {
-    fcntl(connfd, F_SETFL, fcntl(connfd, F_GETFL) | O_NONBLOCK); //set to non-blocking
+    fcntl(connfd, F_SETFL, fcntl(connfd, F_GETFL) | O_NONBLOCK); // set to non-blocking
 
     struct Conn *conn = (struct Conn *)malloc(sizeof(struct Conn));
     if (!conn)
@@ -151,7 +151,6 @@ int try_one_request(Conn *conn)
     memcpy(&len, &conn->rbuf[conn->rbuf_read], 4);
     conn->rbuf_read += 4;
 
-
     if (len > k_max_msg)
     {
         return false;
@@ -165,16 +164,17 @@ int try_one_request(Conn *conn)
     printf("client says: %.*s\n", len, &conn->rbuf[conn->rbuf_read]);
 
     // echo the response
+    if (conn->wbuf_size + len + 4 > k_max_msg + 4)
+    {
+        conn->state = STATE_RES;
+        state_res(conn);
+    }
 
-    memcpy(conn->wbuf, &conn->rbuf[conn->rbuf_read - 4], 4);
-    memcpy(&conn->wbuf[4], &conn->rbuf[conn->rbuf_read], len);
+    memcpy(&conn->wbuf[wbuf_size], &conn->rbuf[conn->rbuf_read - 4], 4);
+    memcpy(&conn->wbuf[wbuf_size + 4], &conn->rbuf[conn->rbuf_read], len);
 
-    conn->wbuf_size = 4 + len;
+    conn->wbuf_size += 4 + len;
     conn->rbuf_read += len;
-
-    conn->state = STATE_RES;
-
-    state_res(conn);
 
     return (conn->state == STATE_REQ);
 }
@@ -191,10 +191,6 @@ static bool try_fill_buffer(Conn *conn)
     assert(conn->rbuf_size < sizeof(conn->rbuf));
     ssize_t rv = 0;
 
-    if(conn->rbuf_read > conn->rbuf_size) {
-
-}
-
     memmove(conn->rbuf, &conn->rbuf[conn->rbuf_read], conn->rbuf_size - conn->rbuf_read);
     conn->rbuf_size = conn->rbuf_size - conn->rbuf_read;
     conn->rbuf_read = 0;
@@ -203,7 +199,7 @@ static bool try_fill_buffer(Conn *conn)
     {
         size_t cap = sizeof(conn->rbuf) - conn->rbuf_size;
         rv = read(conn->fd, &conn->rbuf[conn->rbuf_size], cap);
-    } while (rv < 0 && errno == EINTR); //what I am confused about is why not just read it all in here?
+    } while (rv < 0 && errno == EINTR);
 
     if (rv < 0 && errno == EAGAIN)
     {
@@ -236,6 +232,13 @@ static bool try_fill_buffer(Conn *conn)
     while (try_one_request(conn))
     {
     }
+
+    if (conn->wbuf_size > 0)
+    {
+        conn->state = STATE_RES;
+        state_res(conn);
+    }
+
     return (conn->state == STATE_REQ);
 }
 
@@ -250,9 +253,16 @@ static bool try_flush_buffer(Conn *conn)
 {
     ssize_t rv = 0;
 
+    if (conn->curr_msg_size == conn->wbuf_sent)
+    {
+        uint32_t len = 0;
+        memcpy(&len, &conn->wbuf[conn->wbuf_sent], 4);
+        conn->curr_msg_size = len + 4 + conn->wbuf_sent;
+    }
+
     do
     {
-        size_t remain = conn->wbuf_size - conn->wbuf_sent;
+        size_t remain = conn->curr_msg_size - conn->wbuf_sent;
         rv = write(conn->fd, &conn->wbuf[conn->wbuf_sent], remain);
     } while (rv < 0 && errno == EINTR);
 
@@ -271,6 +281,7 @@ static bool try_flush_buffer(Conn *conn)
         conn->state = STATE_REQ;
         conn->wbuf_sent = 0;
         conn->wbuf_size = 0;
+        conn->curr_msg_size = 0;
         return false;
     }
 
@@ -317,13 +328,12 @@ void init_connection()
         exit(1);
     }
 
-
-
     struct epoll_event event, events[MAX_EVENTS];
 
     int epoll_fd = epoll_create1(0);
 
-    if(epoll_fd == -1) {
+    if (epoll_fd == -1)
+    {
         fprintf(stderr, "failed to create epoll file descriptor\n");
         exit(1);
     }
@@ -331,7 +341,8 @@ void init_connection()
     event.events = EPOLLIN | EPOLLPRI | EPOLLERR | EPOLLHUP;
     event.data.fd = listener;
 
-    if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listener, &event)) {
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listener, &event))
+    {
         fprintf(stderr, "Failed to add file descriptor to epoll\n");
     }
 
@@ -346,43 +357,52 @@ void init_connection()
     while (1)
     {
         res = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
-        if(res == -1) {
+        if (res == -1)
+        {
             perror("epoll_wait");
             exit(1);
         }
 
-        for (int index = 0; index < res; ++index) {
+        for (int index = 0; index < res; ++index)
+        {
             clientfd = events[index].data.fd;
 
-            if(clientfd == listener) {
+            if (clientfd == listener)
+            {
                 struct sockaddr_in client_addr = {};
                 socklen_t size = sizeof(client_addr);
                 int newfd;
-                if((newfd = accept(listener, (struct sockaddr *)&client_addr, &size)) == -1) {
+                if ((newfd = accept(listener, (struct sockaddr *)&client_addr, &size)) == -1)
+                {
                     perror("Server-accept() error");
                 }
-                else {
+                else
+                {
                     (void)accept_new_conn(fd2conn, newfd);
                     event.events = POLLIN;
                     event.data.fd = newfd;
-                    if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, newfd, &event) < 0) {
+                    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, newfd, &event) < 0)
+                    {
                         perror("epoll_ctl");
                         exit(1);
                     }
                 }
-                break; //new connection added to epoll_fd. reiterate loop with new connection.
+                break; // new connection added to epoll_fd. reiterate loop with new connection.
             }
-            else {
-                if(events[index].events & EPOLLIN) {
+            else
+            {
+                if (events[index].events & EPOLLIN)
+                {
                     assert(fd2conn.find(clientfd) != fd2conn.end());
                     Conn *conn = fd2conn[clientfd];
                     connection_io(conn);
-                    if(conn->state == STATE_END) {
+                    if (conn->state == STATE_END)
+                    {
                         fd2conn.erase(conn->fd);
-                        (void)close(conn->fd); //my assupmtion is it is closing the listener, no bueno.
+                        (void)close(conn->fd); // my assupmtion is it is closing the listener, no bueno.
                         free(conn);
                         conn = NULL;
-                        //should I break right here?
+                        // should I break right here?
                     }
                 }
             }
