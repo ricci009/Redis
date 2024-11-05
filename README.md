@@ -1,14 +1,13 @@
 # Redis
 
-#PACKAGES#
+# PACKAGES
 boost
 
-#TODO#
-learn .md so I can make a nice read me lol
+# TODO
+implement hash algo 
 
-#COMMANDS#
-compile server $g++ -Wall -Wextra -g main.cpp network.cpp -o server
-compile client $g++ -Wall -Wextra -g client.cpp -o client
+# Server Protocol 
+epoll
 
-#CLIENT PROTOCOL#
+# CLIENT PROTOCOL
 |len|ms1|len|msg2|len|msg3|more...
