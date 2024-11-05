@@ -1,13 +1,13 @@
 # Redis
 
-# PACKAGES
+## PACKAGES
 boost
 
-# TODO
+## TODO
 implement hash algo 
 
-# Server Protocol 
+## Server Protocol 
 epoll
 
-# CLIENT PROTOCOL
+## CLIENT PROTOCOL
 |len|ms1|len|msg2|len|msg3|more...
